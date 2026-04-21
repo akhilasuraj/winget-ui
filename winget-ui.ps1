@@ -43,13 +43,9 @@ try {
         Write-Host "winget v$currentVersionStr is installed, but v$latestVersionStr is available." -ForegroundColor Yellow
         $response = Read-Host "Update winget now before continuing? (Y/N)"
         if ($response -match '^[Yy]$') {
-            Write-Host "Updating winget..." -ForegroundColor Cyan
-            winget upgrade --id Microsoft.AppInstaller --exact --accept-source-agreements --accept-package-agreements
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "winget updated successfully. Please re-run Winget-UI." -ForegroundColor Green
-            } else {
-                Write-Host "winget update failed (exit code $LASTEXITCODE). Continuing with current version." -ForegroundColor Red
-            }
+            Write-Host "Opening Microsoft Store to update App Installer..." -ForegroundColor Cyan
+            Write-Host "Once updated, close the Store and re-run Winget-UI." -ForegroundColor Gray
+            Start-Process "ms-windows-store://pdp/?productid=9NBLGGH4NNS1"
             Read-Host "`nPress Enter to exit"
             exit
         }
