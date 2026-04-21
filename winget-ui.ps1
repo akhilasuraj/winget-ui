@@ -43,10 +43,48 @@ try {
         Write-Host "winget v$currentVersionStr is installed, but v$latestVersionStr is available." -ForegroundColor Yellow
         $response = Read-Host "Update winget now before continuing? (Y/N)"
         if ($response -match '^[Yy]$') {
-            Write-Host "Opening Microsoft Store to update App Installer..." -ForegroundColor Cyan
-            Write-Host "Once updated, close the Store and re-run Winget-UI." -ForegroundColor Gray
-            Start-Process "ms-windows-store://pdp/?productid=9NBLGGH4NNS1"
-            Read-Host "`nPress Enter to exit"
+            $msixAsset = $latestRelease.assets | Where-Object { $_.name -like "*.msixbundle" } | Select-Object -First 1
+            if (-not $msixAsset) {
+                Write-Host "Could not find update package in GitHub release. Opening Microsoft Store instead..." -ForegroundColor Yellow
+                Start-Process "ms-windows-store://pdp/?productid=9NBLGGH4NNS1"
+                Read-Host "`nPress Enter to exit"
+                exit
+            }
+
+            # Resolve relaunch path before exiting — if run via irm|iex, save in-memory script to temp
+            $relaunchPath = $PSCommandPath
+            if ([string]::IsNullOrEmpty($relaunchPath)) {
+                $relaunchPath = Join-Path $env:TEMP "winget-ui_temp.ps1"
+                $MyInvocation.MyCommand.ScriptBlock.ToString() | Set-Content -Path $relaunchPath -Encoding UTF8
+            }
+
+            $downloadUrl  = $msixAsset.browser_download_url
+            $tempMsix     = Join-Path $env:TEMP $msixAsset.name
+            $helperScript = Join-Path $env:TEMP "winget-ui_updater.ps1"
+
+            # Write helper as a separate script so it runs after this process exits.
+            # Variables expanded here (outer scope); $_ and $LASTEXITCODE are escaped.
+            @"
+Write-Host "Waiting for Winget-UI to close..." -ForegroundColor Gray
+Start-Sleep -Seconds 2
+Write-Host "Downloading winget v$latestVersionStr..." -ForegroundColor Cyan
+try {
+    Invoke-WebRequest -Uri '$downloadUrl' -OutFile '$tempMsix' -UseBasicParsing
+    Write-Host "Installing..." -ForegroundColor Gray
+    Add-AppxPackage -Path '$tempMsix' -ForceApplicationShutdown
+    Write-Host "winget updated! Relaunching Winget-UI..." -ForegroundColor Green
+    Start-Sleep -Seconds 1
+    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File \`"$relaunchPath\`""
+} catch {
+    Write-Host "Update failed: `$_" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+} finally {
+    if (Test-Path '$tempMsix') { Remove-Item '$tempMsix' -Force -ErrorAction SilentlyContinue }
+}
+"@ | Set-Content -Path $helperScript -Encoding UTF8
+
+            Write-Host "Updater launched. Winget-UI will restart automatically after the update." -ForegroundColor Cyan
+            Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$helperScript`""
             exit
         }
         Write-Host "Skipping winget update. Continuing with v$currentVersionStr." -ForegroundColor Gray
