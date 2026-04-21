@@ -17,37 +17,7 @@ function Write-Header {
     Write-Host "`n=== $Message ===`n" -ForegroundColor Cyan
 }
 
-# Ensure Script is Running as Administrator
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "Winget-UI requires Administrator privileges to update multiple applications reliably." -ForegroundColor Yellow
-    Write-Host "Requesting elevation..." -ForegroundColor Cyan
-    
-    # Restart the script with Administrative privileges
-    $processInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $processInfo.FileName = "powershell.exe"
-
-    # When run via `irm | iex`, $PSCommandPath is empty (script is in-memory).
-    # Save to a temp file so the elevated process has a file to execute.
-    $scriptPath = $PSCommandPath
-    if ([string]::IsNullOrEmpty($scriptPath)) {
-        $scriptPath = Join-Path $env:TEMP "winget-ui_temp.ps1"
-        $MyInvocation.MyCommand.ScriptBlock.ToString() | Set-Content -Path $scriptPath -Encoding UTF8
-    }
-
-    $processInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-    $processInfo.Verb = "runas"
-    
-    try {
-        [System.Diagnostics.Process]::Start($processInfo) | Out-Null
-    } catch {
-        Write-Host "Failed to elevate privileges. Updates may not install correctly." -ForegroundColor Red
-        # If the user cancels the UAC prompt, the script will simply exit.
-    }
-    exit
-}
-
-# --- Winget presence and version check ---
+# --- Winget presence and version check (runs before elevation) ---
 $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
 
 if (-not $wingetCmd) {
@@ -74,7 +44,7 @@ try {
         $response = Read-Host "Update winget now before continuing? (Y/N)"
         if ($response -match '^[Yy]$') {
             Write-Host "Updating winget..." -ForegroundColor Cyan
-            winget upgrade --id Microsoft.AppInstaller --exact
+            winget upgrade --id Microsoft.AppInstaller --exact --accept-source-agreements --accept-package-agreements
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "winget updated successfully. Please re-run Winget-UI." -ForegroundColor Green
             } else {
@@ -92,6 +62,36 @@ try {
     Write-Host "winget v$currentVersionStr is installed. (Could not check for updates - skipping)" -ForegroundColor Gray
 }
 # -----------------------------------------
+
+# Ensure Script is Running as Administrator
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "Winget-UI requires Administrator privileges to update multiple applications reliably." -ForegroundColor Yellow
+    Write-Host "Requesting elevation..." -ForegroundColor Cyan
+
+    # Restart the script with Administrative privileges
+    $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $processInfo.FileName = "powershell.exe"
+
+    # When run via `irm | iex`, $PSCommandPath is empty (script is in-memory).
+    # Save to a temp file so the elevated process has a file to execute.
+    $scriptPath = $PSCommandPath
+    if ([string]::IsNullOrEmpty($scriptPath)) {
+        $scriptPath = Join-Path $env:TEMP "winget-ui_temp.ps1"
+        $MyInvocation.MyCommand.ScriptBlock.ToString() | Set-Content -Path $scriptPath -Encoding UTF8
+    }
+
+    $processInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    $processInfo.Verb = "runas"
+
+    try {
+        [System.Diagnostics.Process]::Start($processInfo) | Out-Null
+    } catch {
+        Write-Host "Failed to elevate privileges. Updates may not install correctly." -ForegroundColor Red
+        # If the user cancels the UAC prompt, the script will simply exit.
+    }
+    exit
+}
 
 Write-Header "Fetching Available Updates via Winget"
 Write-Host "This might take a moment..." -ForegroundColor Gray
